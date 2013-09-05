@@ -1,7 +1,51 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# BroadcastSocket is implemented based on Twisted <http://twistedmatrix.com/>.
+
+# Twisted, the Framework of Your Internet
+# Copyright (c) 2001-2013 Twisted Matrix Laboratories.
+# See LICENSE for details.
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+import os
 import socket
+
+if os.name in ('nt', 'ce'):
+    from errno import (WSAEWOULDBLOCK as EAGAIN,
+                       WSAEINTR as EINTR,
+                       WSAEMSGSIZE as EMSGSIZE,
+                       WSAETIMEDOUT as ETIMEDOUT,
+                       WSAECONNREFUSED as ECONNREFUSED,
+                       WSAECONNRESET as ECONNRESET,
+                       WSAENETRESET as ENETRESET,
+                       WSAEINPROGRESS as EINPROGRESS)
+
+    # Classify read and write errors
+    _sockErrReadIgnore = (EAGAIN, EINTR, EMSGSIZE, EINPROGRESS)
+    _sockErrReadRefuse = (ECONNREFUSED, ECONNRESET, ENETRESET, ETIMEDOUT)
+else:
+    from errno import (EWOULDBLOCK, EINTR, EMSGSIZE, ECONNREFUSED, EAGAIN)
+    _sockErrReadIgnore = (EAGAIN, EINTR, EWOULDBLOCK)
+    _sockErrReadRefuse = (ECONNREFUSED,)
 
 
 class BroadcastSocket(socket.socket):
@@ -15,12 +59,35 @@ class BroadcastSocket(socket.socket):
         self.setblocking(0)
 
     def write(self, datagram, addr):
-        self.sendto(datagram, addr)
+        try:
+            self.sendto(datagram, addr)
+        except socket.error, e:
+            no = e.args[0]
+            if no == EINTR:
+                return self.write(datagram, addr)
+            # elif no == EMSGSIZE:
+            #     raise error.MessageLengthError("message too long")
+            elif no == ECONNREFUSED:
+                # in non-connected UDP ECONNREFUSED is platform dependent, I
+                # think and the info is not necessarily useful. Nevertheless
+                # maybe we should call connectionRefused? XXX
+                return
+            else:
+                raise
 
     def read(self):
         while True:
-            data, addr = self.recvfrom(self.max_packet_size)
-            yield (data, addr)
+            try:
+                data, addr = self.recvfrom(self.max_packet_size)
+            except socket.error, e:
+                no = e.args[0]
+                if no in _sockErrReadIgnore:
+                    break
+                if no in _sockErrReadRefuse:
+                    break
+                raise
+            else:
+                yield (data, addr)
 
 
 if __name__ == '__main__':

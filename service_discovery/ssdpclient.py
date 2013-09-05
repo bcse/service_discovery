@@ -24,12 +24,14 @@ def discover(interface=None, timeout=1.0):
     s.set_outgoing_interface()
     s.set_ttl(1)  # multicast will cross router hops if TTL > 1
     s.settimeout(timeout)
+    s.join_group(ssdp_group[0])
     try:
-        s.join_group(ssdp_group[0])
         s.write(msg, ssdp_group)
-        sockets.append(s)
     except socket.error:
-        pass
+        s.leave_group(ssdp_group[0])
+        s.close()
+    else:
+        sockets.append(s)
 
     # discover with broadcast
     broadcast_addresses = ['<broadcast>', '255.255.255.255', '127.0.0.1']
@@ -46,9 +48,10 @@ def discover(interface=None, timeout=1.0):
         s.settimeout(timeout)
         try:
             s.write(msg, (addr, ssdp_group[1]))
-            sockets.append(s)
         except socket.error:
-            pass
+            s.close()
+        else:
+            sockets.append(s)
 
     server_list = {}
     for s in sockets:
@@ -71,13 +74,15 @@ def discover(interface=None, timeout=1.0):
 
 
 if __name__ == '__main__':
+    import sys
     interface = socket.gethostbyname(socket.gethostname())
 
     server_list = discover(interface)
     print 'Discoverd %d server(s)' % len(server_list)
     print
 
-    for server in server_list.values():
-        for k, v in server.iteritems():
-            print k, '=', v
-        print
+    if '--verbose' in sys.argv:
+        for server in server_list.values():
+            for k, v in server.iteritems():
+                print k, '=', v
+            print
