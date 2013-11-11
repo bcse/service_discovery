@@ -14,7 +14,7 @@ Service Discovery
 
 SSDP and PlexGDM M-SEARCH client
 
-* Free software: BSD license
+* Free software: MIT license
 * Documentation: http://service_discovery.rtfd.org.
 
 Features
